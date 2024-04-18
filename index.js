@@ -1,18 +1,28 @@
 require('dotenv').config();
+const fs = require('fs');
+const https = require('https');
 const axios = require('axios');
 const express = require('express');
 const app = express();
-const port = 8888;
+const port = 8443;
 const querystring = require('querystring');
+
+const privateKey = fs.readFileSync('server.key', 'utf8');
+const certificate = fs.readFileSync('server.cert', 'utf8');
+const credentials = { key: privateKey, cert: certificate };
 
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
 
+app.get('/', (req, res) => {
+  res.send('Fantasy trade app');
+})
 
 //callback not using callback due to ngrok restictions
 app.get('/callback', (req, res) => {
     const code = req.query.code || null;
+    console.log(`${code}`);
   
     axios({
       method: 'post',
@@ -24,7 +34,7 @@ app.get('/callback', (req, res) => {
       }),
       headers: {
         'content-type': 'application/x-www-form-urlencoded',
-        Authorization: `Basic ${new Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')}`,
+        Authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')}`,
       },
     })
       .then(response => {
@@ -64,7 +74,8 @@ app.get('/login', (req, res) => {
   });
 
 
-app.listen(port, () => {
-    console.log(`Express app listening at https://localhost:${port}`);
+const httpsServer = https.createServer(credentials, app);
+httpsServer.listen(port, () => {
+    console.log('Express app listening at https://localhost:8443');
 });
 
