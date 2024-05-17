@@ -39,7 +39,41 @@ app.get('/callback', (req, res) => {
     })
       .then(response => {
         if (response.status === 200) {
-          res.send(`<pre>${JSON.stringify(response.data, null, 2)}</pre>`);
+          const {access_token, refresh_token, expires_in, token_type} = response.data;
+
+          const queryParams = querystring.stringify({
+            access_token,
+            refresh_token,
+            expires_in,
+            token_type
+          })
+
+          leagueKey = 'nhl.l.34621';
+
+          axios.get(`https://localhost:${port}/refresh_token?refresh_token=${refresh_token}`, {
+          httpsAgent: new https.Agent({
+            rejectUnauthorized: false
+          })
+        })
+          .then(response => {
+            res.send(`<pre>${JSON.stringify(response.data, null, 2)}</pre>`);
+          })
+          .catch(error => {
+            res.send(error);
+          });
+
+          // axios.get(`https://fantasysports.yahooapis.com/fantasy/v2/league/${leagueKey}`, {
+          //   headers: {
+          //     'Authorization': `Bearer ${access_token}`,
+          //     'Accept': 'application/json'
+          //   }
+          // })
+          // .then(apiResponse => {
+          //   res.send(`<pre>${JSON.stringify(apiResponse.data, null, 2)}</pre>`);
+          // })
+          // .catch(error => {
+          //   res.send(error);
+          // });
         } else {
           res.send(response);
         }
@@ -48,6 +82,31 @@ app.get('/callback', (req, res) => {
         res.send(error);
       });
   });
+
+app.get('/refresh_token', (req, res) => {
+  const { refresh_token } = req.query;
+
+  axios({
+    method: 'post',
+    url: 'https://api.login.yahoo.com/oauth2/get_token',
+    data: querystring.stringify({
+      grant_type: 'refresh_token',
+      refresh_token: refresh_token
+    }),
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      Authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')}`,
+    },
+  })
+  .then(response => {
+    console.log('this is coming from the refresh route');
+    res.send(response.data);
+  })
+  .catch(error => {
+    res.send(error);
+  });
+});
+
 
 const generateRandomString = length => {
     let text = '';
