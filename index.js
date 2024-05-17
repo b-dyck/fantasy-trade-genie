@@ -1,11 +1,16 @@
 require('dotenv').config();
 const fs = require('fs');
+const next = require('next')
 const https = require('https');
 const axios = require('axios');
 const express = require('express');
-const app = express();
-const port = 8443;
 const querystring = require('querystring');
+
+const dev = process.env.NODE_ENV !== 'production';
+const app = next({ dev, dir: './my-app' });
+const handle = app.getRequestHandler();
+
+const port = 8443;
 
 const privateKey = fs.readFileSync('server.key', 'utf8');
 const certificate = fs.readFileSync('server.cert', 'utf8');
@@ -15,12 +20,12 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
 
-app.get('/', (req, res) => {
-  res.send('Fantasy trade app');
-})
+app.prepare().then(() => {
+  const server = express();
 
-//callback not using callback due to ngrok restictions
-app.get('/callback', (req, res) => {
+  server.use(express.json());
+
+  server.get('/callback', (req, res) => {
     const code = req.query.code || null;
     console.log(`${code}`);
   
@@ -39,22 +44,22 @@ app.get('/callback', (req, res) => {
     })
       .then(response => {
         if (response.status === 200) {
-          const {access_token, refresh_token, expires_in, token_type} = response.data;
+          const { access_token, refresh_token, expires_in, token_type } = response.data;
 
           const queryParams = querystring.stringify({
             access_token,
             refresh_token,
             expires_in,
             token_type
-          })
+          });
 
-          leagueKey = 'nhl.l.34621';
+          const leagueKey = 'nhl.l.34621';
 
           axios.get(`https://localhost:${port}/refresh_token?refresh_token=${refresh_token}`, {
-          httpsAgent: new https.Agent({
-            rejectUnauthorized: false
+            httpsAgent: new https.Agent({
+              rejectUnauthorized: false
+            })
           })
-        })
           .then(response => {
             res.send(`<pre>${JSON.stringify(response.data, null, 2)}</pre>`);
           })
@@ -62,6 +67,7 @@ app.get('/callback', (req, res) => {
             res.send(error);
           });
 
+          // Uncomment and use the code below to make a direct API call to Yahoo
           // axios.get(`https://fantasysports.yahooapis.com/fantasy/v2/league/${leagueKey}`, {
           //   headers: {
           //     'Authorization': `Bearer ${access_token}`,
@@ -83,43 +89,42 @@ app.get('/callback', (req, res) => {
       });
   });
 
-app.get('/refresh_token', (req, res) => {
-  const { refresh_token } = req.query;
+  server.get('/refresh_token', (req, res) => {
+    const { refresh_token } = req.query;
 
-  axios({
-    method: 'post',
-    url: 'https://api.login.yahoo.com/oauth2/get_token',
-    data: querystring.stringify({
-      grant_type: 'refresh_token',
-      refresh_token: refresh_token
-    }),
-    headers: {
-      'content-type': 'application/x-www-form-urlencoded',
-      Authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')}`,
-    },
-  })
-  .then(response => {
-    console.log('this is coming from the refresh route');
-    res.send(response.data);
-  })
-  .catch(error => {
-    res.send(error);
+    axios({
+      method: 'post',
+      url: 'https://api.login.yahoo.com/oauth2/get_token',
+      data: querystring.stringify({
+        grant_type: 'refresh_token',
+        refresh_token: refresh_token
+      }),
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        Authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')}`,
+      },
+    })
+    .then(response => {
+      console.log('this is coming from the refresh route');
+      res.send(response.data);
+    })
+    .catch(error => {
+      res.send(error);
+    });
   });
-});
 
-
-const generateRandomString = length => {
+  const generateRandomString = length => {
     let text = '';
     const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     for (let i = 0; i < length; i++) {
       text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
     return text;
-};
+  };
   
-const stateKey = 'yahoo_auth_state';
+  const stateKey = 'yahoo_auth_state';
 
-app.get('/login', (req, res) => {
+  server.get('/login', (req, res) => {
     const state = generateRandomString(16);
     res.cookie(stateKey, state);
     const queryParams = querystring.stringify({
@@ -128,13 +133,20 @@ app.get('/login', (req, res) => {
       redirect_uri: REDIRECT_URI,
       state: state,
     });
-  
+
     res.redirect(`https://api.login.yahoo.com/oauth2/request_auth?${queryParams}`);
   });
 
+  // Use the Next.js request handler for all other routes
+  server.all('*', (req, res) => {
+    return handle(req, res);
+  });
 
-const httpsServer = https.createServer(credentials, app);
-httpsServer.listen(port, () => {
-    console.log('Express app listening at https://localhost:8443');
+  const httpsServer = https.createServer(credentials, server);
+  httpsServer.listen(port, (err) => {
+    if (err) throw err;
+    console.log(`> Ready on https://localhost:${port}`);
+  });
 });
+
 
